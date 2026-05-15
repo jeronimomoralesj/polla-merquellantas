@@ -11,8 +11,8 @@ export type ApiMatch = {
   stage: string;
   stageLabel: string;
   status?: string;
-  home: { name: string; crest: string };
-  away: { name: string; crest: string };
+  home: { code: string; name: string; crest: string };
+  away: { code: string; name: string; crest: string };
 };
 
 export function staticFallback(): ApiMatch[] {
@@ -26,7 +26,7 @@ export function staticFallback(): ApiMatch[] {
     matchday: m.matchday,
     stage: "GROUP_STAGE",
     stageLabel: "Fase de Grupos",
-    home: { name: m.home.name, crest: flagSrc(m.home.code, 80) },
-    away: { name: m.away.name, crest: flagSrc(m.away.code, 80) },
+    home: { code: m.home.code, name: m.home.name, crest: flagSrc(m.home.code, 80) },
+    away: { code: m.away.code, name: m.away.name, crest: flagSrc(m.away.code, 80) },
   }));
 }

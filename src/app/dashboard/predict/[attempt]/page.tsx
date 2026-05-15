@@ -12,6 +12,7 @@ import {
 import { formatDate } from "@/data/worldcup2026";
 import { staticFallback, type ApiMatch } from "@/lib/matches";
 import { clearSession, readSession, type Session } from "@/lib/session";
+import { displayTeam, normalizeTeam } from "@/lib/team-display";
 import type { KnockoutPick, PredictionDoc } from "@/lib/types";
 
 const MERQUE_LOGO =
@@ -76,6 +77,8 @@ function GroupMatchRow({
   onChange: (home: number | null, away: number | null) => void;
   onCommit: () => void;
 }) {
+  const home = normalizeTeam(match.home);
+  const away = normalizeTeam(match.away);
   return (
     <li className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border border-[var(--line)] bg-white p-4 md:grid-cols-[120px_1fr_auto_1fr_auto]">
       <div className="hidden font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--foreground-muted)] md:block">
@@ -84,11 +87,11 @@ function GroupMatchRow({
       </div>
       <div className="flex items-center gap-3 md:justify-end">
         <span className="text-right text-base font-bold uppercase tracking-tight">
-          {match.home.name}
+          {home.name}
         </span>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={match.home.crest}
+          src={home.crest}
           alt=""
           aria-hidden
           className="h-9 w-12 border border-[var(--line)] object-cover"
@@ -99,7 +102,7 @@ function GroupMatchRow({
           value={score?.home ?? null}
           onChange={(v) => onChange(v, score?.away ?? null)}
           onCommit={onCommit}
-          ariaLabel={`${match.home.name} goles`}
+          ariaLabel={`${home.name} goles`}
         />
         <span className="font-mono text-xs font-bold text-[var(--foreground-muted)]">
           vs
@@ -108,19 +111,19 @@ function GroupMatchRow({
           value={score?.away ?? null}
           onChange={(v) => onChange(score?.home ?? null, v)}
           onCommit={onCommit}
-          ariaLabel={`${match.away.name} goles`}
+          ariaLabel={`${away.name} goles`}
         />
       </div>
       <div className="flex items-center gap-3">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={match.away.crest}
+          src={away.crest}
           alt=""
           aria-hidden
           className="h-9 w-12 border border-[var(--line)] object-cover"
         />
         <span className="text-base font-bold uppercase tracking-tight">
-          {match.away.name}
+          {away.name}
         </span>
       </div>
       <div className="col-span-3 border-t border-dashed border-[var(--line)] pt-2 text-xs text-[var(--foreground-soft)] md:col-span-1 md:border-0 md:pt-0 md:text-right">
@@ -136,11 +139,6 @@ function GroupMatchRow({
   );
 }
 
-function flagUrl(code: string): string {
-  if (!code) return "";
-  return `https://flagcdn.com/w80/${code.toLowerCase()}.png`;
-}
-
 function KnockoutMatchRow({
   pick,
   onChange,
@@ -154,17 +152,17 @@ function KnockoutMatchRow({
 }) {
   const isTie =
     pick.home != null && pick.away != null && pick.home === pick.away;
-  const homeFlag = flagUrl(pick.homeTeamCode);
-  const awayFlag = flagUrl(pick.awayTeamCode);
+  const home = displayTeam(pick.homeTeamCode, pick.homeTeamName);
+  const away = displayTeam(pick.awayTeamCode, pick.awayTeamName);
   return (
     <li className="grid gap-3 border border-[var(--line)] bg-white p-4">
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 md:grid-cols-[1fr_auto_1fr]">
         <div className="flex items-center justify-end gap-3 text-right text-base font-bold uppercase tracking-tight">
-          <span>{pick.homeTeamName || "—"}</span>
-          {homeFlag && (
+          <span>{home.name || "—"}</span>
+          {home.crest && (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
-              src={homeFlag}
+              src={home.crest}
               alt=""
               aria-hidden
               className="h-7 w-10 shrink-0 border border-[var(--line)] object-cover"
@@ -176,7 +174,7 @@ function KnockoutMatchRow({
             value={pick.home}
             onChange={(v) => onChange(v, pick.away)}
             onCommit={onCommit}
-            ariaLabel={`${pick.homeTeamName} goles`}
+            ariaLabel={`${home.name} goles`}
           />
           <span className="font-mono text-xs font-bold text-[var(--foreground-muted)]">
             vs
@@ -185,20 +183,20 @@ function KnockoutMatchRow({
             value={pick.away}
             onChange={(v) => onChange(pick.home, v)}
             onCommit={onCommit}
-            ariaLabel={`${pick.awayTeamName} goles`}
+            ariaLabel={`${away.name} goles`}
           />
         </div>
         <div className="flex items-center gap-3 text-base font-bold uppercase tracking-tight">
-          {awayFlag && (
+          {away.crest && (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
-              src={awayFlag}
+              src={away.crest}
               alt=""
               aria-hidden
               className="h-7 w-10 shrink-0 border border-[var(--line)] object-cover"
             />
           )}
-          <span>{pick.awayTeamName || "—"}</span>
+          <span>{away.name || "—"}</span>
         </div>
       </div>
       {isTie && (
@@ -217,7 +215,7 @@ function KnockoutMatchRow({
                   : "border-[var(--line)] hover:border-[var(--brand)]")
               }
             >
-              {pick.homeTeamName}
+              {home.name}
             </button>
             <button
               type="button"
@@ -229,7 +227,7 @@ function KnockoutMatchRow({
                   : "border-[var(--line)] hover:border-[var(--brand)]")
               }
             >
-              {pick.awayTeamName}
+              {away.name}
             </button>
           </div>
         </div>
@@ -894,16 +892,34 @@ export default function PredictPage() {
                     )}
                   </div>
 
-                  {prediction.champion && (
-                    <div className="border-l-4 border-[var(--brand)] bg-[var(--brand-soft)] p-8">
-                      <p className="font-mono text-[11px] uppercase tracking-[0.3em] text-[var(--brand-dark)]">
-                        Tu campeón pronosticado
-                      </p>
-                      <p className="mt-3 text-4xl font-black uppercase tracking-tight text-[var(--brand-dark)]">
-                        {prediction.champion.name}
-                      </p>
-                    </div>
-                  )}
+                  {prediction.champion &&
+                    (() => {
+                      const champ = displayTeam(
+                        prediction.champion.code,
+                        prediction.champion.name,
+                      );
+                      return (
+                        <div className="flex items-center gap-6 border-l-4 border-[var(--brand)] bg-[var(--brand-soft)] p-8">
+                          {champ.crest && (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img
+                              src={champ.crest}
+                              alt=""
+                              aria-hidden
+                              className="h-16 w-24 shrink-0 border border-[var(--line)] object-cover"
+                            />
+                          )}
+                          <div>
+                            <p className="font-mono text-[11px] uppercase tracking-[0.3em] text-[var(--brand-dark)]">
+                              Tu campeón pronosticado
+                            </p>
+                            <p className="mt-3 text-4xl font-black uppercase tracking-tight text-[var(--brand-dark)]">
+                              {champ.name}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                   {allDone && (
                     <div className="border border-emerald-600 bg-emerald-50 p-6 text-sm text-emerald-800">

@@ -6,15 +6,11 @@ import { useEffect, useMemo, useState } from "react";
 import { formatDate } from "@/data/worldcup2026";
 import { staticFallback, type ApiMatch } from "@/lib/matches";
 import { clearSession, readSession, type Session } from "@/lib/session";
+import { displayTeam, flagUrl, normalizeTeam } from "@/lib/team-display";
 import type { KnockoutPick, PredictionDoc } from "@/lib/types";
 
 const MERQUE_LOGO =
   "https://www.merquellantas.com/assets/images/logo/Logo-Merquellantas.png";
-
-function flagUrl(code: string): string {
-  if (!code) return "";
-  return `https://flagcdn.com/w80/${code.toLowerCase()}.png`;
-}
 
 const STAGE_TITLES: Record<KnockoutPick["stage"], string> = {
   ROUND_OF_32: "Dieciseisavos",
@@ -181,6 +177,8 @@ export default function ResultsPage() {
                 {groupMatches.map((m) => {
                   const predicted = prediction.groupScores[m._id] ?? null;
                   const actual = m.score?.fullTime ?? null;
+                  const homeT = normalizeTeam(m.home);
+                  const awayT = normalizeTeam(m.away);
                   return (
                     <li
                       key={m._id}
@@ -195,11 +193,11 @@ export default function ResultsPage() {
                       </div>
                       <div className="flex items-center gap-3 md:justify-end">
                         <span className="text-right text-base font-bold uppercase tracking-tight">
-                          {m.home.name}
+                          {homeT.name}
                         </span>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={m.home.crest}
+                          src={homeT.crest}
                           alt=""
                           aria-hidden
                           className="h-9 w-12 border border-[var(--line)] object-cover"
@@ -230,13 +228,13 @@ export default function ResultsPage() {
                       <div className="flex items-center gap-3">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={m.away.crest}
+                          src={awayT.crest}
                           alt=""
                           aria-hidden
                           className="h-9 w-12 border border-[var(--line)] object-cover"
                         />
                         <span className="text-base font-bold uppercase tracking-tight">
-                          {m.away.name}
+                          {awayT.name}
                         </span>
                       </div>
                       <div className="font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--foreground-muted)] md:text-right">
@@ -273,19 +271,19 @@ export default function ResultsPage() {
                       </h3>
                       <ul className="grid gap-3 md:grid-cols-2">
                         {picks.map((p) => {
-                          const hf = flagUrl(p.homeTeamCode);
-                          const af = flagUrl(p.awayTeamCode);
+                          const h = displayTeam(p.homeTeamCode, p.homeTeamName);
+                          const a = displayTeam(p.awayTeamCode, p.awayTeamName);
                           return (
                             <li
                               key={p.matchId}
                               className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border border-[var(--line)] bg-white p-4"
                             >
                               <div className="flex items-center justify-end gap-2 text-right text-sm font-bold uppercase tracking-tight">
-                                <span>{p.homeTeamName || "—"}</span>
-                                {hf && (
+                                <span>{h.name || "—"}</span>
+                                {h.crest && (
                                   /* eslint-disable-next-line @next/next/no-img-element */
                                   <img
-                                    src={hf}
+                                    src={h.crest}
                                     alt=""
                                     aria-hidden
                                     className="h-6 w-9 shrink-0 border border-[var(--line)] object-cover"
@@ -298,16 +296,16 @@ export default function ResultsPage() {
                                   : "—"}
                               </span>
                               <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-tight">
-                                {af && (
+                                {a.crest && (
                                   /* eslint-disable-next-line @next/next/no-img-element */
                                   <img
-                                    src={af}
+                                    src={a.crest}
                                     alt=""
                                     aria-hidden
                                     className="h-6 w-9 shrink-0 border border-[var(--line)] object-cover"
                                   />
                                 )}
-                                <span>{p.awayTeamName || "—"}</span>
+                                <span>{a.name || "—"}</span>
                               </div>
                             </li>
                           );
@@ -322,8 +320,8 @@ export default function ResultsPage() {
                     {(["third", "final"] as const).map((key) => {
                       const p = prediction.knockout[key];
                       if (!p) return null;
-                      const hf = flagUrl(p.homeTeamCode);
-                      const af = flagUrl(p.awayTeamCode);
+                      const h = displayTeam(p.homeTeamCode, p.homeTeamName);
+                      const a = displayTeam(p.awayTeamCode, p.awayTeamName);
                       return (
                         <div key={key}>
                           <h3 className="mb-3 font-mono text-xs font-bold uppercase tracking-[0.3em]">
@@ -331,11 +329,11 @@ export default function ResultsPage() {
                           </h3>
                           <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border border-[var(--line)] bg-white p-4">
                             <div className="flex items-center justify-end gap-2 text-right text-sm font-bold uppercase tracking-tight">
-                              <span>{p.homeTeamName || "—"}</span>
-                              {hf && (
+                              <span>{h.name || "—"}</span>
+                              {h.crest && (
                                 /* eslint-disable-next-line @next/next/no-img-element */
                                 <img
-                                  src={hf}
+                                  src={h.crest}
                                   alt=""
                                   aria-hidden
                                   className="h-6 w-9 shrink-0 border border-[var(--line)] object-cover"
@@ -348,16 +346,16 @@ export default function ResultsPage() {
                                 : "—"}
                             </span>
                             <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-tight">
-                              {af && (
+                              {a.crest && (
                                 /* eslint-disable-next-line @next/next/no-img-element */
                                 <img
-                                  src={af}
+                                  src={a.crest}
                                   alt=""
                                   aria-hidden
                                   className="h-6 w-9 shrink-0 border border-[var(--line)] object-cover"
                                 />
                               )}
-                              <span>{p.awayTeamName || "—"}</span>
+                              <span>{a.name || "—"}</span>
                             </div>
                           </div>
                         </div>
@@ -372,7 +370,10 @@ export default function ResultsPage() {
                       Tu campeón pronosticado
                     </p>
                     <p className="mt-3 text-4xl font-black uppercase tracking-tight text-[var(--brand-dark)]">
-                      {prediction.champion.name}
+                      {displayTeam(
+                        prediction.champion.code,
+                        prediction.champion.name,
+                      ).name}
                     </p>
                   </div>
                 )}
