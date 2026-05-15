@@ -136,6 +136,11 @@ function GroupMatchRow({
   );
 }
 
+function flagUrl(code: string): string {
+  if (!code) return "";
+  return `https://flagcdn.com/w80/${code.toLowerCase()}.png`;
+}
+
 function KnockoutMatchRow({
   pick,
   onChange,
@@ -149,11 +154,22 @@ function KnockoutMatchRow({
 }) {
   const isTie =
     pick.home != null && pick.away != null && pick.home === pick.away;
+  const homeFlag = flagUrl(pick.homeTeamCode);
+  const awayFlag = flagUrl(pick.awayTeamCode);
   return (
     <li className="grid gap-3 border border-[var(--line)] bg-white p-4">
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 md:grid-cols-[1fr_auto_1fr]">
-        <div className="text-right text-base font-bold uppercase tracking-tight">
-          {pick.homeTeamName || "—"}
+        <div className="flex items-center justify-end gap-3 text-right text-base font-bold uppercase tracking-tight">
+          <span>{pick.homeTeamName || "—"}</span>
+          {homeFlag && (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={homeFlag}
+              alt=""
+              aria-hidden
+              className="h-7 w-10 shrink-0 border border-[var(--line)] object-cover"
+            />
+          )}
         </div>
         <div className="flex items-center gap-2">
           <ScoreInput
@@ -172,8 +188,17 @@ function KnockoutMatchRow({
             ariaLabel={`${pick.awayTeamName} goles`}
           />
         </div>
-        <div className="text-base font-bold uppercase tracking-tight">
-          {pick.awayTeamName || "—"}
+        <div className="flex items-center gap-3 text-base font-bold uppercase tracking-tight">
+          {awayFlag && (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={awayFlag}
+              alt=""
+              aria-hidden
+              className="h-7 w-10 shrink-0 border border-[var(--line)] object-cover"
+            />
+          )}
+          <span>{pick.awayTeamName || "—"}</span>
         </div>
       </div>
       {isTie && (

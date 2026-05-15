@@ -11,6 +11,11 @@ import type { KnockoutPick, PredictionDoc } from "@/lib/types";
 const MERQUE_LOGO =
   "https://www.merquellantas.com/assets/images/logo/Logo-Merquellantas.png";
 
+function flagUrl(code: string): string {
+  if (!code) return "";
+  return `https://flagcdn.com/w80/${code.toLowerCase()}.png`;
+}
+
 const STAGE_TITLES: Record<KnockoutPick["stage"], string> = {
   ROUND_OF_32: "Dieciseisavos",
   ROUND_OF_16: "Octavos",
@@ -267,24 +272,46 @@ export default function ResultsPage() {
                         {STAGE_TITLES[stage]}
                       </h3>
                       <ul className="grid gap-3 md:grid-cols-2">
-                        {picks.map((p) => (
-                          <li
-                            key={p.matchId}
-                            className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border border-[var(--line)] bg-white p-4"
-                          >
-                            <span className="text-right text-sm font-bold uppercase tracking-tight">
-                              {p.homeTeamName || "—"}
-                            </span>
-                            <span className="font-mono text-lg font-black tabular-nums">
-                              {p.home != null && p.away != null
-                                ? `${p.home}–${p.away}${p.penaltyWinner ? " (pen)" : ""}`
-                                : "—"}
-                            </span>
-                            <span className="text-sm font-bold uppercase tracking-tight">
-                              {p.awayTeamName || "—"}
-                            </span>
-                          </li>
-                        ))}
+                        {picks.map((p) => {
+                          const hf = flagUrl(p.homeTeamCode);
+                          const af = flagUrl(p.awayTeamCode);
+                          return (
+                            <li
+                              key={p.matchId}
+                              className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border border-[var(--line)] bg-white p-4"
+                            >
+                              <div className="flex items-center justify-end gap-2 text-right text-sm font-bold uppercase tracking-tight">
+                                <span>{p.homeTeamName || "—"}</span>
+                                {hf && (
+                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                  <img
+                                    src={hf}
+                                    alt=""
+                                    aria-hidden
+                                    className="h-6 w-9 shrink-0 border border-[var(--line)] object-cover"
+                                  />
+                                )}
+                              </div>
+                              <span className="font-mono text-lg font-black tabular-nums">
+                                {p.home != null && p.away != null
+                                  ? `${p.home}–${p.away}${p.penaltyWinner ? " (pen)" : ""}`
+                                  : "—"}
+                              </span>
+                              <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-tight">
+                                {af && (
+                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                  <img
+                                    src={af}
+                                    alt=""
+                                    aria-hidden
+                                    className="h-6 w-9 shrink-0 border border-[var(--line)] object-cover"
+                                  />
+                                )}
+                                <span>{p.awayTeamName || "—"}</span>
+                              </div>
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   );
@@ -292,36 +319,50 @@ export default function ResultsPage() {
 
                 {(prediction.knockout.third || prediction.knockout.final) && (
                   <div className="grid gap-6 md:grid-cols-2">
-                    {prediction.knockout.third && (
-                      <div>
-                        <h3 className="mb-3 font-mono text-xs font-bold uppercase tracking-[0.3em]">
-                          {STAGE_TITLES.THIRD_PLACE}
-                        </h3>
-                        <div className="border border-[var(--line)] bg-white p-4 text-center">
-                          <p className="text-sm font-bold uppercase">
-                            {prediction.knockout.third.homeTeamName} —{" "}
-                            {prediction.knockout.third.home ?? "—"} vs{" "}
-                            {prediction.knockout.third.away ?? "—"} —{" "}
-                            {prediction.knockout.third.awayTeamName}
-                          </p>
+                    {(["third", "final"] as const).map((key) => {
+                      const p = prediction.knockout[key];
+                      if (!p) return null;
+                      const hf = flagUrl(p.homeTeamCode);
+                      const af = flagUrl(p.awayTeamCode);
+                      return (
+                        <div key={key}>
+                          <h3 className="mb-3 font-mono text-xs font-bold uppercase tracking-[0.3em]">
+                            {STAGE_TITLES[key === "third" ? "THIRD_PLACE" : "FINAL"]}
+                          </h3>
+                          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border border-[var(--line)] bg-white p-4">
+                            <div className="flex items-center justify-end gap-2 text-right text-sm font-bold uppercase tracking-tight">
+                              <span>{p.homeTeamName || "—"}</span>
+                              {hf && (
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                <img
+                                  src={hf}
+                                  alt=""
+                                  aria-hidden
+                                  className="h-6 w-9 shrink-0 border border-[var(--line)] object-cover"
+                                />
+                              )}
+                            </div>
+                            <span className="font-mono text-lg font-black tabular-nums">
+                              {p.home != null && p.away != null
+                                ? `${p.home}–${p.away}${p.penaltyWinner ? " (pen)" : ""}`
+                                : "—"}
+                            </span>
+                            <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-tight">
+                              {af && (
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                <img
+                                  src={af}
+                                  alt=""
+                                  aria-hidden
+                                  className="h-6 w-9 shrink-0 border border-[var(--line)] object-cover"
+                                />
+                              )}
+                              <span>{p.awayTeamName || "—"}</span>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    )}
-                    {prediction.knockout.final && (
-                      <div>
-                        <h3 className="mb-3 font-mono text-xs font-bold uppercase tracking-[0.3em]">
-                          {STAGE_TITLES.FINAL}
-                        </h3>
-                        <div className="border border-[var(--line)] bg-white p-4 text-center">
-                          <p className="text-sm font-bold uppercase">
-                            {prediction.knockout.final.homeTeamName} —{" "}
-                            {prediction.knockout.final.home ?? "—"} vs{" "}
-                            {prediction.knockout.final.away ?? "—"} —{" "}
-                            {prediction.knockout.final.awayTeamName}
-                          </p>
-                        </div>
-                      </div>
-                    )}
+                      );
+                    })}
                   </div>
                 )}
 
