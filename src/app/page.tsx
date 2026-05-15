@@ -77,12 +77,20 @@ export default function Home() {
               Habla con tu asesor
             </a>
           </nav>
-          <a
-            href="#asesor"
-            className="hidden rounded-sm bg-[var(--brand)] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand-dark)] md:inline-block"
-          >
-            Quiero participar
-          </a>
+          <div className="hidden items-center gap-3 md:flex">
+            <Link
+              href="/login"
+              className="text-sm font-semibold text-[var(--foreground)] hover:text-[var(--brand)]"
+            >
+              Iniciar sesión
+            </Link>
+            <a
+              href="#asesor"
+              className="rounded-sm bg-[var(--brand)] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand-dark)]"
+            >
+              Quiero participar
+            </a>
+          </div>
         </div>
       </header>
 

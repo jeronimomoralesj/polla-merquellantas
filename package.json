@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "ingest:matches": "node --env-file=.env.local scripts/ingest-matches.mjs"
   },
   "dependencies": {
     "mongodb": "^7.2.0",
