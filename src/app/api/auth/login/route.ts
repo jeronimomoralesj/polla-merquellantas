@@ -17,17 +17,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 400 });
   }
 
-  const user = await findUserByCredentials(email, nit);
-  if (!user) {
-    return NextResponse.json({ error: "User not found" }, { status: 401 });
+  try {
+    const user = await findUserByCredentials(email, nit);
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 401 });
+    }
+    return NextResponse.json({
+      user: {
+        email: user.email,
+        nit: user.nit,
+        name: user.name,
+        attemptsAllowed: user.attemptsAllowed,
+      },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Database error";
+    console.error("Login DB error:", err);
+    return NextResponse.json(
+      { error: "Database error", detail: msg },
+      { status: 500 },
+    );
   }
-
-  return NextResponse.json({
-    user: {
-      email: user.email,
-      nit: user.nit,
-      name: user.name,
-      attemptsAllowed: user.attemptsAllowed,
-    },
-  });
 }
