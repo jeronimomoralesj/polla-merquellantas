@@ -19,13 +19,17 @@ const MERQUE_LOGO =
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
+type GroupDraft = { home: number | null; away: number | null };
+
 function ScoreInput({
   value,
   onChange,
+  onCommit,
   ariaLabel,
 }: {
   value: number | null | undefined;
   onChange: (v: number | null) => void;
+  onCommit?: () => void;
   ariaLabel: string;
 }) {
   const [text, setText] = useState<string>(
@@ -52,6 +56,10 @@ function ScoreInput({
           if (Number.isInteger(n) && n >= 0 && n <= 20) onChange(n);
         }
       }}
+      onBlur={() => onCommit?.()}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === "Tab") onCommit?.();
+      }}
       className="h-12 w-14 border border-[var(--line)] bg-white text-center font-mono text-xl font-black tabular-nums outline-none transition focus:border-[var(--brand)] focus:ring-2 focus:ring-[var(--brand)]/20"
     />
   );
@@ -60,11 +68,13 @@ function ScoreInput({
 function GroupMatchRow({
   match,
   score,
-  onSave,
+  onChange,
+  onCommit,
 }: {
   match: ApiMatch;
-  score: { home: number; away: number } | undefined;
-  onSave: (home: number | null, away: number | null) => void;
+  score: GroupDraft | undefined;
+  onChange: (home: number | null, away: number | null) => void;
+  onCommit: () => void;
 }) {
   return (
     <li className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border border-[var(--line)] bg-white p-4 md:grid-cols-[120px_1fr_auto_1fr_auto]">
@@ -86,20 +96,18 @@ function GroupMatchRow({
       </div>
       <div className="flex items-center gap-2">
         <ScoreInput
-          value={score?.home}
-          onChange={(v) =>
-            onSave(v, score?.away ?? null)
-          }
+          value={score?.home ?? null}
+          onChange={(v) => onChange(v, score?.away ?? null)}
+          onCommit={onCommit}
           ariaLabel={`${match.home.name} goles`}
         />
         <span className="font-mono text-xs font-bold text-[var(--foreground-muted)]">
           vs
         </span>
         <ScoreInput
-          value={score?.away}
-          onChange={(v) =>
-            onSave(score?.home ?? null, v)
-          }
+          value={score?.away ?? null}
+          onChange={(v) => onChange(score?.home ?? null, v)}
+          onCommit={onCommit}
           ariaLabel={`${match.away.name} goles`}
         />
       </div>
@@ -130,14 +138,14 @@ function GroupMatchRow({
 
 function KnockoutMatchRow({
   pick,
-  onSave,
+  onChange,
+  onCommit,
+  onPickPenalty,
 }: {
   pick: KnockoutPick;
-  onSave: (
-    home: number | null,
-    away: number | null,
-    penaltyWinner: "home" | "away" | null,
-  ) => void;
+  onChange: (home: number | null, away: number | null) => void;
+  onCommit: () => void;
+  onPickPenalty: (winner: "home" | "away") => void;
 }) {
   const isTie =
     pick.home != null && pick.away != null && pick.home === pick.away;
@@ -150,9 +158,8 @@ function KnockoutMatchRow({
         <div className="flex items-center gap-2">
           <ScoreInput
             value={pick.home}
-            onChange={(v) =>
-              onSave(v, pick.away, pick.penaltyWinner)
-            }
+            onChange={(v) => onChange(v, pick.away)}
+            onCommit={onCommit}
             ariaLabel={`${pick.homeTeamName} goles`}
           />
           <span className="font-mono text-xs font-bold text-[var(--foreground-muted)]">
@@ -160,9 +167,8 @@ function KnockoutMatchRow({
           </span>
           <ScoreInput
             value={pick.away}
-            onChange={(v) =>
-              onSave(pick.home, v, pick.penaltyWinner)
-            }
+            onChange={(v) => onChange(pick.home, v)}
+            onCommit={onCommit}
             ariaLabel={`${pick.awayTeamName} goles`}
           />
         </div>
@@ -178,7 +184,7 @@ function KnockoutMatchRow({
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => onSave(pick.home, pick.away, "home")}
+              onClick={() => onPickPenalty("home")}
               className={
                 "border px-3 py-2 text-xs font-bold uppercase tracking-[0.18em] transition " +
                 (pick.penaltyWinner === "home"
@@ -190,7 +196,7 @@ function KnockoutMatchRow({
             </button>
             <button
               type="button"
-              onClick={() => onSave(pick.home, pick.away, "away")}
+              onClick={() => onPickPenalty("away")}
               className={
                 "border px-3 py-2 text-xs font-bold uppercase tracking-[0.18em] transition " +
                 (pick.penaltyWinner === "away"
@@ -224,11 +230,28 @@ export default function PredictPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [matches, setMatches] = useState<ApiMatch[]>([]);
   const [prediction, setPrediction] = useState<PredictionDoc | null>(null);
+  const [groupDrafts, setGroupDrafts] = useState<Record<string, GroupDraft>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [activeGroup, setActiveGroup] = useState<string>("A");
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map(),
+  );
+  const pendingPayloads = useRef<
+    Map<
+      string,
+      | { kind: "group"; matchId: string; home: number; away: number }
+      | {
+          kind: "knockout";
+          matchId: string;
+          home: number | null;
+          away: number | null;
+          penaltyWinner: "home" | "away" | null;
+        }
+    >
+  >(new Map());
+  const inflight = useRef<number>(0);
 
   useEffect(() => {
     const s = readSession();
@@ -264,6 +287,7 @@ export default function PredictPage() {
           : staticFallback();
         setMatches(arr.length ? arr : staticFallback());
         setPrediction(p.prediction);
+        setGroupDrafts(p.prediction?.groupScores ?? {});
         setError(null);
       })
       .catch(() => {
@@ -303,9 +327,9 @@ export default function PredictPage() {
     return map;
   }, [groupMatches]);
 
-  const filledCount = prediction
-    ? Object.keys(prediction.groupScores).length
-    : 0;
+  const filledCount = Object.values(groupDrafts).filter(
+    (d) => typeof d.home === "number" && typeof d.away === "number",
+  ).length;
   const totalGroupMatches = groupMatches.length;
   const groupComplete =
     totalGroupMatches > 0 && filledCount === totalGroupMatches;
@@ -332,94 +356,107 @@ export default function PredictPage() {
     knockoutFilled === totalKnockout &&
     !!prediction?.champion;
 
-  const saveGroupScore = useCallback(
-    async (matchId: string, home: number | null, away: number | null) => {
-      if (!session) return;
-      if (home == null || away == null) return;
-      setSaveState("saving");
-      try {
-        const res = await fetch(`/api/predictions/${attemptNum}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            kind: "group",
-            email: session.email,
-            matchId,
-            home,
-            away,
-          }),
-        });
-        if (!res.ok) throw new Error(await res.text());
-        const data = (await res.json()) as { prediction: PredictionDoc };
-        setPrediction(data.prediction);
-        setSaveState("saved");
-      } catch {
-        setSaveState("error");
-      }
-    },
-    [session, attemptNum],
-  );
-
-  const saveKnockout = useCallback(
+  const sendPayload = useCallback(
     async (
       matchId: string,
-      home: number | null,
-      away: number | null,
-      penaltyWinner: "home" | "away" | null,
+      payload:
+        | { kind: "group"; matchId: string; home: number; away: number }
+        | {
+            kind: "knockout";
+            matchId: string;
+            home: number | null;
+            away: number | null;
+            penaltyWinner: "home" | "away" | null;
+          },
     ) => {
       if (!session) return;
+      pendingPayloads.current.delete(matchId);
+      inflight.current += 1;
       setSaveState("saving");
       try {
         const res = await fetch(`/api/predictions/${attemptNum}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            kind: "knockout",
-            email: session.email,
-            matchId,
-            home,
-            away,
-            penaltyWinner,
-          }),
+          body: JSON.stringify({ ...payload, email: session.email }),
         });
         if (!res.ok) throw new Error(await res.text());
         const data = (await res.json()) as { prediction: PredictionDoc };
         setPrediction(data.prediction);
-        setSaveState("saved");
+        if (payload.kind === "group") {
+          setGroupDrafts((prev) => ({
+            ...prev,
+            [matchId]: { home: payload.home, away: payload.away },
+          }));
+        }
+        inflight.current -= 1;
+        if (inflight.current <= 0 && pendingPayloads.current.size === 0) {
+          inflight.current = 0;
+          setSaveState("saved");
+        }
       } catch {
+        inflight.current = Math.max(0, inflight.current - 1);
         setSaveState("error");
       }
     },
     [session, attemptNum],
   );
 
-  function scheduleSaveGroup(
+  const flushMatch = useCallback(
+    (matchId: string) => {
+      const t = saveTimers.current.get(matchId);
+      if (t) {
+        clearTimeout(t);
+        saveTimers.current.delete(matchId);
+      }
+      const payload = pendingPayloads.current.get(matchId);
+      if (payload) {
+        void sendPayload(matchId, payload);
+      }
+    },
+    [sendPayload],
+  );
+
+  function queueGroupSave(
     matchId: string,
     home: number | null,
     away: number | null,
   ) {
-    setPrediction((prev) => {
-      if (!prev) return prev;
-      const next = { ...prev.groupScores };
+    setGroupDrafts((prev) => {
+      const next = { ...prev };
       if (home == null && away == null) {
         delete next[matchId];
       } else {
-        next[matchId] = {
-          home: home ?? next[matchId]?.home ?? 0,
-          away: away ?? next[matchId]?.away ?? 0,
-        };
+        next[matchId] = { home, away };
       }
-      return { ...prev, groupScores: next };
+      return next;
     });
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      if (home != null && away != null) {
-        void saveGroupScore(matchId, home, away);
+    if (typeof home === "number" && typeof away === "number") {
+      pendingPayloads.current.set(matchId, {
+        kind: "group",
+        matchId,
+        home,
+        away,
+      });
+      const existing = saveTimers.current.get(matchId);
+      if (existing) clearTimeout(existing);
+      const t = setTimeout(() => {
+        saveTimers.current.delete(matchId);
+        const payload = pendingPayloads.current.get(matchId);
+        if (payload) void sendPayload(matchId, payload);
+      }, 250);
+      saveTimers.current.set(matchId, t);
+    } else {
+      // Drop any pending save for this match — partial values shouldn't reach server
+      pendingPayloads.current.delete(matchId);
+      const existing = saveTimers.current.get(matchId);
+      if (existing) {
+        clearTimeout(existing);
+        saveTimers.current.delete(matchId);
       }
-    }, 400);
+    }
   }
 
-  function scheduleSaveKnockout(
+  function queueKnockoutSave(
     matchId: string,
     home: number | null,
     away: number | null,
@@ -469,11 +506,45 @@ export default function PredictPage() {
       }
       return prev;
     });
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      void saveKnockout(matchId, home, away, penaltyWinner);
-    }, 400);
+    pendingPayloads.current.set(matchId, {
+      kind: "knockout",
+      matchId,
+      home,
+      away,
+      penaltyWinner,
+    });
+    const existing = saveTimers.current.get(matchId);
+    if (existing) clearTimeout(existing);
+    const t = setTimeout(() => {
+      saveTimers.current.delete(matchId);
+      const payload = pendingPayloads.current.get(matchId);
+      if (payload) void sendPayload(matchId, payload);
+    }, 250);
+    saveTimers.current.set(matchId, t);
   }
+
+  useEffect(() => {
+    function flushAll() {
+      const ids = Array.from(saveTimers.current.keys());
+      for (const id of ids) {
+        const t = saveTimers.current.get(id);
+        if (t) clearTimeout(t);
+        saveTimers.current.delete(id);
+        const payload = pendingPayloads.current.get(id);
+        if (payload) void sendPayload(id, payload);
+      }
+    }
+    const onHide = () => {
+      if (document.visibilityState === "hidden") flushAll();
+    };
+    window.addEventListener("beforeunload", flushAll);
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.removeEventListener("beforeunload", flushAll);
+      document.removeEventListener("visibilitychange", onHide);
+      flushAll();
+    };
+  }, [sendPayload]);
 
   function handleLogout() {
     clearSession();
@@ -593,7 +664,14 @@ export default function PredictPage() {
                     {groupKeys.map((g) => {
                       const active = g === activeGroup;
                       const groupFilled = (matchesByGroup[g] ?? []).every(
-                        (m) => prediction.groupScores[m._id],
+                        (m) => {
+                          const d = groupDrafts[m._id];
+                          return (
+                            d &&
+                            typeof d.home === "number" &&
+                            typeof d.away === "number"
+                          );
+                        },
                       );
                       return (
                         <button
@@ -655,8 +733,9 @@ export default function PredictPage() {
                           <GroupMatchRow
                             key={m._id}
                             match={m}
-                            score={prediction.groupScores[m._id]}
-                            onSave={(h, a) => scheduleSaveGroup(m._id, h, a)}
+                            score={groupDrafts[m._id]}
+                            onChange={(h, a) => queueGroupSave(m._id, h, a)}
+                            onCommit={() => flushMatch(m._id)}
                           />
                         ))}
                       </ul>
@@ -708,8 +787,12 @@ export default function PredictPage() {
                           <KnockoutMatchRow
                             key={p.matchId}
                             pick={p}
-                            onSave={(h, a, pw) =>
-                              scheduleSaveKnockout(p.matchId, h, a, pw)
+                            onChange={(h, a) =>
+                              queueKnockoutSave(p.matchId, h, a, p.penaltyWinner)
+                            }
+                            onCommit={() => flushMatch(p.matchId)}
+                            onPickPenalty={(w) =>
+                              queueKnockoutSave(p.matchId, p.home, p.away, w)
                             }
                           />
                         ))}
@@ -728,12 +811,23 @@ export default function PredictPage() {
                         <ul className="grid gap-3">
                           <KnockoutMatchRow
                             pick={prediction.knockout.third}
-                            onSave={(h, a, pw) =>
-                              scheduleSaveKnockout(
+                            onChange={(h, a) =>
+                              queueKnockoutSave(
                                 prediction.knockout.third!.matchId,
                                 h,
                                 a,
-                                pw,
+                                prediction.knockout.third!.penaltyWinner,
+                              )
+                            }
+                            onCommit={() =>
+                              flushMatch(prediction.knockout.third!.matchId)
+                            }
+                            onPickPenalty={(w) =>
+                              queueKnockoutSave(
+                                prediction.knockout.third!.matchId,
+                                prediction.knockout.third!.home,
+                                prediction.knockout.third!.away,
+                                w,
                               )
                             }
                           />
@@ -750,12 +844,23 @@ export default function PredictPage() {
                         <ul className="grid gap-3">
                           <KnockoutMatchRow
                             pick={prediction.knockout.final}
-                            onSave={(h, a, pw) =>
-                              scheduleSaveKnockout(
+                            onChange={(h, a) =>
+                              queueKnockoutSave(
                                 prediction.knockout.final!.matchId,
                                 h,
                                 a,
-                                pw,
+                                prediction.knockout.final!.penaltyWinner,
+                              )
+                            }
+                            onCommit={() =>
+                              flushMatch(prediction.knockout.final!.matchId)
+                            }
+                            onPickPenalty={(w) =>
+                              queueKnockoutSave(
+                                prediction.knockout.final!.matchId,
+                                prediction.knockout.final!.home,
+                                prediction.knockout.final!.away,
+                                w,
                               )
                             }
                           />
