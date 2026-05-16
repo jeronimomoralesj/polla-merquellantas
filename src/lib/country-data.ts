@@ -23,12 +23,22 @@ export type CountryFacts = {
   worstDefeat: string | null;
 };
 
+export type WorldCupMatchStats = {
+  played: number | null;
+  won: number | null;
+  drawn: number | null;
+  lost: number | null;
+  goalsFor: number | null;
+  goalsAgainst: number | null;
+};
+
 export type CountryWorldCup = {
   appearances: string | null;
   firstAppearance: string | null;
   bestResult: string | null;
   summary: string | null;
   url: string | null;
+  matchStats: WorldCupMatchStats;
 };
 
 export type CountryPayload = {
@@ -50,9 +60,43 @@ function flagUrl(iso: string): string {
   return `https://flagcdn.com/w320/${iso.toLowerCase()}.png`;
 }
 
-async function fetchSummary(page: string): Promise<CountrySummary | null> {
+function encodeTitle(title: string): string {
+  return encodeURIComponent(title).replace(/%20/g, "_");
+}
+
+async function resolveSpanishTitle(
+  englishTitle: string,
+): Promise<string | null> {
   try {
-    const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(page).replace(/%20/g, "_")}`;
+    const url =
+      "https://en.wikipedia.org/w/api.php?" +
+      new URLSearchParams({
+        action: "query",
+        titles: englishTitle.replace(/_/g, " "),
+        prop: "langlinks",
+        lllang: "es",
+        format: "json",
+        formatversion: "2",
+        redirects: "1",
+      }).toString();
+    const res = await fetch(url, {
+      headers: { "user-agent": UA, accept: "application/json" },
+      next: { revalidate: 604800 },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      query?: { pages?: Array<{ langlinks?: Array<{ title?: string }> }> };
+    };
+    const title = data.query?.pages?.[0]?.langlinks?.[0]?.title;
+    return title ? title.replace(/ /g, "_") : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchSummary(title: string): Promise<CountrySummary | null> {
+  try {
+    const url = `https://es.wikipedia.org/api/rest_v1/page/summary/${encodeTitle(title)}`;
     const res = await fetch(url, {
       headers: { "user-agent": UA, accept: "application/json" },
       next: { revalidate: 86400 },
@@ -68,20 +112,46 @@ async function fetchSummary(page: string): Promise<CountrySummary | null> {
       thumbnail: data.thumbnail?.source ?? null,
       url:
         data.content_urls?.desktop?.page ??
-        `https://en.wikipedia.org/wiki/${page}`,
+        `https://es.wikipedia.org/wiki/${encodeTitle(title)}`,
     };
   } catch {
     return null;
   }
 }
 
-async function fetchWikitext(page: string): Promise<string> {
+async function pageExists(title: string): Promise<boolean> {
   try {
     const url =
-      "https://en.wikipedia.org/w/api.php?" +
+      "https://es.wikipedia.org/w/api.php?" +
+      new URLSearchParams({
+        action: "query",
+        titles: title.replace(/_/g, " "),
+        format: "json",
+        formatversion: "2",
+        redirects: "1",
+      }).toString();
+    const res = await fetch(url, {
+      headers: { "user-agent": UA, accept: "application/json" },
+      next: { revalidate: 604800 },
+    });
+    if (!res.ok) return false;
+    const data = (await res.json()) as {
+      query?: { pages?: Array<{ missing?: boolean }> };
+    };
+    const page = data.query?.pages?.[0];
+    return !!(page && !page.missing);
+  } catch {
+    return false;
+  }
+}
+
+async function fetchWikitext(title: string): Promise<string> {
+  try {
+    const url =
+      "https://es.wikipedia.org/w/api.php?" +
       new URLSearchParams({
         action: "parse",
-        page,
+        page: title,
         format: "json",
         prop: "wikitext",
         formatversion: "2",
@@ -99,15 +169,33 @@ async function fetchWikitext(page: string): Promise<string> {
   }
 }
 
+function evalExpr(input: string): string {
+  return input.replace(
+    /\{\{\s*#expr:\s*([0-9.+\-*/() ]+?)(?:\s+round\s+(\d+))?\s*\}\}/gi,
+    (_m, expr: string, round: string | undefined) => {
+      try {
+        const fn = new Function(`return (${expr})`);
+        const v = Number(fn());
+        if (!Number.isFinite(v)) return "";
+        return round !== undefined ? v.toFixed(Number(round)) : String(v);
+      } catch {
+        return "";
+      }
+    },
+  );
+}
+
 function stripWiki(input: string): string {
   let s = input;
   s = s.replace(/<!--[\s\S]*?-->/g, "");
   s = s.replace(/<ref[^>]*?\/>/gi, "");
   s = s.replace(/<ref[\s\S]*?<\/ref>/gi, "");
-  // Country code helpers: {{fb|ARG}} {{fb-rt|BRA|1889}} {{fbu|...}} → leave just the country code
+  // Pre-evaluate parser functions like {{#expr:...}}
+  s = evalExpr(s);
+  // Country / flag templates: keep just the country code or label
   s = s.replace(
-    /\{\{\s*(?:fb|fb-rt|fbu|fbw|fbw-rt|fba|fb-big)\s*\|\s*([A-Z]{2,4})(?:\|[^}]*)?\}\}/gi,
-    (_m, code) => String(code),
+    /\{\{\s*(?:fb|fb-rt|fbu|fbw|fbw-rt|fba|fb-big|bandera|bandera2)\s*\|\s*([^|}]+)(?:\|[^}]*)?\}\}/gi,
+    (_m, code) => String(code).trim(),
   );
   s = s.replace(/\{\{flagicon\|[^|}]+(?:\|[^}]+)?\}\}/gi, "");
   s = s.replace(/\{\{flagu?\|[^|}]+(?:\|[^}]+)?\}\}/gi, "");
@@ -117,6 +205,12 @@ function stripWiki(input: string): string {
   s = s.replace(/\{\{nts\|([^}]+)\}\}/gi, "$1");
   s = s.replace(/\{\{cnote\|[^}]+\}\}/gi, "");
   s = s.replace(/\{\{small\|([^}]+)\}\}/gi, "$1");
+  // Spanish date template: {{Fecha|d|m|y}} → d/m/y
+  s = s.replace(
+    /\{\{\s*[Ff]echa\s*\|\s*(\d{1,2})\s*\|\s*(\d{1,2})\s*\|\s*(\d{4})[^}]*\}\}/g,
+    (_m, d, m, y) =>
+      `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`,
+  );
   s = s.replace(/\{\{ubl\|([^}]+)\}\}/gi, (_m, body: string) =>
     body
       .split("|")
@@ -124,11 +218,11 @@ function stripWiki(input: string): string {
       .filter(Boolean)
       .join(", "),
   );
-  // Strip remaining unknown templates ({{efn|...}}, {{Webarchive|...}}, etc.)
+  // Strip remaining unknown templates iteratively (handles nesting)
   for (let i = 0; i < 4; i++) {
     s = s.replace(/\{\{[^{}]*\}\}/g, "");
   }
-  s = s.replace(/\[\[(?:File|Image):[^\]]+\]\]/gi, "");
+  s = s.replace(/\[\[(?:File|Image|Archivo):[^\]]+\]\]/gi, "");
   s = s.replace(/\[\[([^|\]]+)\|([^\]]+)\]\]/g, (_m, _l, label) => label);
   s = s.replace(/\[\[([^\]]+)\]\]/g, (_m, label) => label);
   s = s.replace(/'''([^']+)'''/g, "$1");
@@ -138,18 +232,32 @@ function stripWiki(input: string): string {
   s = s.replace(/<br\s*\/?>/gi, " · ");
   s = s.replace(/<[^>]+>/g, "");
   s = s.replace(/\s+/g, " ").trim();
-  // Trim trailing parenthetical fragments / dangling separators
   s = s.replace(/[·,;\s]+$/g, "").trim();
   return s;
 }
 
-function extractInfobox(wikitext: string): Infobox | null {
-  const start = wikitext.search(/\{\{\s*Infobox\s+national\s+football\s+team/i);
+function extractTemplate(
+  wikitext: string,
+  namePattern: RegExp,
+): string | null {
+  const start = wikitext.search(namePattern);
   if (start < 0) return null;
-  let i = start;
+  // Walk back to find the opening {{
+  let openAt = start;
+  while (openAt > 0 && !(wikitext[openAt - 1] === "{" && wikitext[openAt - 2] === "{")) {
+    openAt--;
+    if (start - openAt > 80) break;
+  }
+  openAt -= 2;
+  if (openAt < 0 || wikitext[openAt] !== "{" || wikitext[openAt + 1] !== "{") {
+    // Fallback: assume name starts immediately after the {{
+    openAt = wikitext.lastIndexOf("{{", start);
+    if (openAt < 0) return null;
+  }
+  let i = openAt;
   let depth = 0;
   let end = -1;
-  while (i < wikitext.length) {
+  while (i < wikitext.length - 1) {
     if (wikitext[i] === "{" && wikitext[i + 1] === "{") {
       depth++;
       i += 2;
@@ -165,40 +273,58 @@ function extractInfobox(wikitext: string): Infobox | null {
     }
   }
   if (end < 0) return null;
-  const body = wikitext.slice(start + 2, end - 2);
-  const stripped = body.replace(
-    /^\s*Infobox\s+national\s+football\s+team\s*\|?/i,
-    "",
-  );
+  return wikitext.slice(openAt + 2, end - 2);
+}
+
+function parseTemplateArgs(body: string): Infobox {
+  // Drop the template name (everything up to the first top-level |)
+  let depth = 0;
+  let nameEnd = body.length;
+  for (let j = 0; j < body.length; j++) {
+    const c = body[j];
+    const next = body[j + 1];
+    if ((c === "{" && next === "{") || (c === "[" && next === "[")) {
+      depth++;
+      j++;
+    } else if ((c === "}" && next === "}") || (c === "]" && next === "]")) {
+      depth--;
+      j++;
+    } else if (c === "|" && depth === 0) {
+      nameEnd = j;
+      break;
+    }
+  }
+  const stripped = body.slice(nameEnd + 1);
+
   const args: Infobox = {};
-  let depth2 = 0;
+  let d = 0;
   let current = "";
   const tokens: string[] = [];
-  let j = 0;
-  while (j < stripped.length) {
-    const c = stripped[j];
-    const next = stripped[j + 1];
+  let i = 0;
+  while (i < stripped.length) {
+    const c = stripped[i];
+    const next = stripped[i + 1];
     if ((c === "{" && next === "{") || (c === "[" && next === "[")) {
-      depth2++;
+      d++;
       current += c + next;
-      j += 2;
+      i += 2;
       continue;
     }
     if ((c === "}" && next === "}") || (c === "]" && next === "]")) {
-      depth2--;
-      if (depth2 < 0) depth2 = 0;
+      d--;
+      if (d < 0) d = 0;
       current += c + next;
-      j += 2;
+      i += 2;
       continue;
     }
-    if (c === "|" && depth2 === 0) {
+    if (c === "|" && d === 0) {
       tokens.push(current);
       current = "";
-      j += 1;
+      i += 1;
       continue;
     }
     current += c;
-    j += 1;
+    i += 1;
   }
   tokens.push(current);
   for (const t of tokens) {
@@ -215,29 +341,148 @@ function extractInfobox(wikitext: string): Infobox | null {
   return args;
 }
 
-function clean(field: string | undefined): string | null {
+function extractInfobox(wikitext: string): Infobox | null {
+  const body =
+    extractTemplate(wikitext, /\{\{\s*Ficha\s+de\s+selecci[oó]n\s+de\s+f[uú]tbol/i) ??
+    extractTemplate(wikitext, /\{\{\s*Infobox\s+national\s+football\s+team/i);
+  if (!body) return null;
+  return parseTemplateArgs(body);
+}
+
+function clean(field: string | undefined | null): string | null {
   if (!field) return null;
   const s = stripWiki(field);
   return s.length ? s : null;
 }
 
-function buildFifaRanking(infobox: Infobox): string | null {
-  const current = clean(
-    infobox.fifa_ranking ?? infobox.fifa_rank ?? infobox.fifa_max ?? "",
-  );
-  if (!current) return null;
-  const min = clean(infobox.fifa_min);
-  const max = clean(infobox.fifa_max);
-  const parts = [current];
-  if (max && max !== current) parts.push(`máx ${max}`);
-  if (min) parts.push(`mín ${min}`);
-  return parts.join(" · ");
+function joinIfBoth(a: string | null, b: string | null, sep: string): string | null {
+  if (a && b) return `${a} ${sep} ${b}`;
+  return a ?? b;
 }
 
-function extractBalancedTemplates(
-  text: string,
-  namePattern: RegExp,
-): string[] {
+function buildMatchLine(
+  infobox: Infobox,
+  prefix: "ppi" | "mri" | "pri",
+): string | null {
+  const c1 = clean(infobox[`${prefix}_país1`]);
+  const c2 = clean(infobox[`${prefix}_país2`]);
+  const score = clean(infobox[`${prefix}_marcador`]);
+  const place = clean(infobox[`${prefix}_lugar`]);
+  const date = clean(infobox[`${prefix}_fecha`]);
+  const teams = joinIfBoth(c1, c2, score ?? "vs.");
+  if (!teams) return null;
+  const tail = [place, date].filter(Boolean).join(", ");
+  return tail ? `${teams} (${tail})` : teams;
+}
+
+function buildFifaRanking(infobox: Infobox): string | null {
+  return (
+    clean(infobox.ranking_fifa) ??
+    clean(infobox.fifa_ranking) ??
+    clean(infobox.fifa_rank)
+  );
+}
+
+function buildTopScorer(infobox: Infobox): string | null {
+  const name = clean(infobox.mayor_goleador) ?? clean(infobox.top_scorer);
+  const goals = clean(infobox.mayor_goleador_goles);
+  if (!name) return null;
+  return goals ? `${name} (${goals})` : name;
+}
+
+function buildMostCaps(infobox: Infobox): string | null {
+  const name =
+    clean(infobox.más_participaciones) ??
+    clean(infobox.mas_participaciones) ??
+    clean(infobox.most_caps);
+  const caps = clean(infobox.mayor_partidos);
+  if (!name && !caps) return null;
+  if (name && caps) return `${name} (${caps})`;
+  return name ?? caps;
+}
+
+function buildCoach(infobox: Infobox): string | null {
+  return (
+    clean(infobox.director_técnico) ??
+    clean(infobox.director_tecnico) ??
+    clean(infobox.entrenador) ??
+    clean(infobox.coach) ??
+    clean(infobox.manager)
+  );
+}
+
+function buildNickname(infobox: Infobox): string | null {
+  return (
+    clean(infobox.seudónimo) ??
+    clean(infobox.seudonimo) ??
+    clean(infobox.apodo) ??
+    clean(infobox.nickname)
+  );
+}
+
+function extractMatchStats(wikitext: string): WorldCupMatchStats {
+  const result: WorldCupMatchStats = {
+    played: null,
+    won: null,
+    drawn: null,
+    lost: null,
+    goalsFor: null,
+    goalsAgainst: null,
+  };
+  const labels: Array<{ key: keyof WorldCupMatchStats; label: string }> = [
+    { key: "played", label: "Partidos" },
+    { key: "won", label: "Partidos ganados" },
+    { key: "drawn", label: "Partidos empatados" },
+    { key: "lost", label: "Partidos perdidos" },
+    { key: "goalsFor", label: "Goles anotados" },
+    { key: "goalsAgainst", label: "Goles recibidos" },
+  ];
+  for (const { key, label } of labels) {
+    const escaped = label.replace(/\s+/g, "\\s+");
+    // Accept inline (|| value) or newline-then-pipe (\n| value)
+    const re = new RegExp(
+      `'''\\s*${escaped}\\s*'''\\s*(?:\\|\\||[\\r\\n]+\\s*\\|)\\s*([^|\\n\\r]+)`,
+      "i",
+    );
+    const m = re.exec(wikitext);
+    if (!m) continue;
+    const cleaned = stripWiki(m[1]);
+    const num = parseInt(cleaned.replace(/[^0-9-]/g, ""), 10);
+    if (Number.isFinite(num)) result[key] = num;
+  }
+  return result;
+}
+
+function extractRecentSquad(wikitext: string, limit = 26): string[] {
+  const startRe =
+    /==+\s*(Última convocatoria|Convocatoria(?:s)? actual|Plantel actual|Jugadores convocados|Plantilla actual|Plantel|Plantilla|Jugadores)\s*==+/i;
+  const m = startRe.exec(wikitext);
+  if (!m) return [];
+  let segment = wikitext.slice(m.index, m.index + 25000);
+  segment = segment.replace(/\[\[([^|\]]+)\|([^\]]+)\]\]/g, "$2");
+  segment = segment.replace(/\[\[([^\]]+)\]\]/g, "$1");
+  const bodies = extractBalancedTemplates(
+    segment,
+    /^\s*(?:nat\s*fs\s*g\s*player|jugador\s+de\s+selecci[oó]n)\b/i,
+  );
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const body of bodies) {
+    if (names.length >= limit) break;
+    const nameMatch =
+      /\|\s*(?:nombre|name|jugador|player)\s*=\s*([^|}\n]+)/i.exec(body);
+    if (!nameMatch) continue;
+    const name = stripWiki(nameMatch[1]);
+    const key = name.toLowerCase();
+    if (name && !seen.has(key)) {
+      seen.add(key);
+      names.push(name);
+    }
+  }
+  return names;
+}
+
+function extractBalancedTemplates(text: string, namePattern: RegExp): string[] {
   const out: string[] = [];
   let i = 0;
   while (i < text.length - 1) {
@@ -269,87 +514,97 @@ function extractBalancedTemplates(
   return out;
 }
 
-function extractRecentSquad(wikitext: string, limit = 26): string[] {
-  const startRe = /==+\s*(Current squad|Recent call-ups|Players|Squad)\s*==+/i;
-  const m = startRe.exec(wikitext);
-  if (!m) return [];
-  let segment = wikitext.slice(m.index, m.index + 25000);
-  // Resolve piped wikilinks so |name=[[Foo|Bar]]| becomes |name=Bar|
-  segment = segment.replace(/\[\[([^|\]]+)\|([^\]]+)\]\]/g, "$2");
-  segment = segment.replace(/\[\[([^\]]+)\]\]/g, "$1");
-  const bodies = extractBalancedTemplates(
-    segment,
-    /^\s*(?:nat\s*fs\s*g\s*player|football\s+squad\s+player|national\s+football\s+squad\s+player)\b/i,
-  );
-  const names: string[] = [];
-  const seen = new Set<string>();
-  for (const body of bodies) {
-    if (names.length >= limit) break;
-    const nameMatch =
-      /\|\s*name\s*=\s*([^|}\n]+)/i.exec(body) ??
-      /\|\s*player\s*=\s*([^|}\n]+)/i.exec(body);
-    if (!nameMatch) continue;
-    const name = stripWiki(nameMatch[1]);
-    const key = name.toLowerCase();
-    if (name && !seen.has(key)) {
-      seen.add(key);
-      names.push(name);
-    }
+async function resolveWcTitle(info: CountryInfo): Promise<string | null> {
+  const fromLangLinks = await resolveSpanishTitle(info.wikiWorldCup);
+  if (fromLangLinks) return fromLangLinks;
+  // Heuristic fallbacks based on the Spanish country name
+  const base = info.es.replace(/ /g, "_");
+  const candidates = [
+    `${base}_en_la_Copa_Mundial_de_Fútbol`,
+    `Selección_de_fútbol_de_${base}_en_la_Copa_Mundial_de_Fútbol`,
+    `Selección_de_fútbol_de_los_${base}_en_la_Copa_Mundial_de_Fútbol`,
+    `Selección_de_fútbol_de_las_${base}_en_la_Copa_Mundial_de_Fútbol`,
+  ];
+  for (const c of candidates) {
+    if (await pageExists(c)) return c;
   }
-  return names;
+  return null;
 }
 
 export async function buildCountryPayload(
   info: CountryInfo,
 ): Promise<CountryPayload> {
-  const [summary, teamWiki, wcSummary] = await Promise.all([
-    fetchSummary(info.wikiTeam),
-    fetchWikitext(info.wikiTeam),
-    fetchSummary(info.wikiWorldCup),
+  const [esTeamTitle, esWcTitle] = await Promise.all([
+    resolveSpanishTitle(info.wikiTeam),
+    resolveWcTitle(info),
   ]);
+
+  const [summary, teamWiki, wcSummary, wcWiki] = await Promise.all([
+    esTeamTitle ? fetchSummary(esTeamTitle) : Promise.resolve(null),
+    esTeamTitle ? fetchWikitext(esTeamTitle) : Promise.resolve(""),
+    esWcTitle ? fetchSummary(esWcTitle) : Promise.resolve(null),
+    esWcTitle ? fetchWikitext(esWcTitle) : Promise.resolve(""),
+  ]);
+
   const infobox = teamWiki ? extractInfobox(teamWiki) ?? {} : {};
+  const matchStats = wcWiki
+    ? extractMatchStats(wcWiki)
+    : {
+        played: null,
+        won: null,
+        drawn: null,
+        lost: null,
+        goalsFor: null,
+        goalsAgainst: null,
+      };
+
+  const wikiUrl = esTeamTitle
+    ? `https://es.wikipedia.org/wiki/${encodeTitle(esTeamTitle)}`
+    : `https://en.wikipedia.org/wiki/${encodeTitle(info.wikiTeam)}`;
+
   return {
     iso: info.iso,
     fifa: info.fifa,
     es: info.es,
     en: info.en,
     flag: flagUrl(info.iso),
-    wikiUrl: `https://en.wikipedia.org/wiki/${encodeURIComponent(info.wikiTeam).replace(/%20/g, "_")}`,
+    wikiUrl,
     summary,
     facts: {
-      association: clean(infobox.association),
-      confederation: clean(infobox.confederation),
-      nickname:
-        clean(infobox.nickname) ??
-        clean(infobox.nicknames) ??
-        clean(infobox.alt_name),
+      association: clean(infobox.asociación) ?? clean(infobox.asociacion) ?? clean(infobox.association),
+      confederation:
+        clean(infobox.confederación) ??
+        clean(infobox.confederacion) ??
+        clean(infobox.confederation),
+      nickname: buildNickname(infobox),
       homeStadium:
-        clean(infobox.home_stadium) ?? clean(infobox.stadium),
-      headCoach:
-        clean(infobox.coach) ??
-        clean(infobox.manager) ??
-        clean(infobox.head_coach),
-      captain: clean(infobox.captain),
-      mostCaps:
-        clean(infobox.most_caps) ?? clean(infobox.most_capped_player),
-      topScorer:
-        clean(infobox.top_scorer) ?? clean(infobox.leading_scorer),
+        clean(infobox.estadio) ?? clean(infobox.home_stadium) ?? clean(infobox.stadium),
+      headCoach: buildCoach(infobox),
+      captain: clean(infobox.capitán) ?? clean(infobox.capitan) ?? clean(infobox.captain),
+      mostCaps: buildMostCaps(infobox),
+      topScorer: buildTopScorer(infobox),
       fifaRanking: buildFifaRanking(infobox),
-      firstGame:
-        clean(infobox.first_game) ?? clean(infobox.first_international),
-      largestWin: clean(infobox.largest_win),
+      firstGame: buildMatchLine(infobox, "ppi") ?? clean(infobox.first_game),
+      largestWin: buildMatchLine(infobox, "mri") ?? clean(infobox.largest_win),
       worstDefeat:
-        clean(infobox.largest_loss) ?? clean(infobox.worst_defeat),
+        buildMatchLine(infobox, "pri") ??
+        clean(infobox.largest_loss) ??
+        clean(infobox.worst_defeat),
     },
     worldCup: {
       appearances:
-        clean(infobox.world_cup_apps) ?? clean(infobox.regional_cup_apps),
+        clean(infobox.participación_mundial) ??
+        clean(infobox.participacion_mundial) ??
+        clean(infobox.world_cup_apps),
       firstAppearance:
-        clean(infobox.world_cup_first) ?? clean(infobox.regional_cup_first),
+        clean(infobox.primer_mundial) ?? clean(infobox.world_cup_first),
       bestResult:
-        clean(infobox.world_cup_best) ?? clean(infobox.regional_cup_best),
+        clean(infobox.mejor_mundial) ?? clean(infobox.world_cup_best),
       summary: wcSummary?.extract ?? null,
-      url: wcSummary?.url ?? null,
+      url: esWcTitle
+        ? `https://es.wikipedia.org/wiki/${encodeTitle(esWcTitle)}`
+        : wcSummary?.url ?? null,
+      matchStats,
     },
     recentSquad: teamWiki ? extractRecentSquad(teamWiki) : [],
   };

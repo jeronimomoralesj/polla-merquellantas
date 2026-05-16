@@ -37,12 +37,26 @@ export default async function CountryPage({
   if (!data) notFound();
 
   const factsHasAny = Object.values(data.facts).some(Boolean);
+  const ms = data.worldCup.matchStats;
+  const matchStatsHasAny = !!(
+    ms.played ||
+    ms.won ||
+    ms.drawn ||
+    ms.lost ||
+    ms.goalsFor ||
+    ms.goalsAgainst
+  );
   const wcHasAny = !!(
     data.worldCup.appearances ||
     data.worldCup.firstAppearance ||
     data.worldCup.bestResult ||
-    data.worldCup.summary
+    data.worldCup.summary ||
+    matchStatsHasAny
   );
+  const perMatch = (n: number | null, played: number | null): string | null => {
+    if (n == null || !played) return null;
+    return (n / played).toFixed(2);
+  };
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--background)] text-[var(--foreground)]">
@@ -125,6 +139,53 @@ export default async function CountryPage({
                 <Stat label="Primera vez" value={data.worldCup.firstAppearance} />
                 <Stat label="Mejor resultado" value={data.worldCup.bestResult} />
               </dl>
+
+              {matchStatsHasAny && (
+                <div className="mt-6">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--foreground-muted)]">
+                    Datos de partidos
+                  </p>
+                  <dl className="mt-2 grid gap-3 md:grid-cols-3">
+                    <Stat
+                      label="Partidos"
+                      value={ms.played != null ? String(ms.played) : null}
+                    />
+                    <Stat
+                      label="Partidos ganados"
+                      value={ms.won != null ? String(ms.won) : null}
+                    />
+                    <Stat
+                      label="Partidos empatados"
+                      value={ms.drawn != null ? String(ms.drawn) : null}
+                    />
+                    <Stat
+                      label="Partidos perdidos"
+                      value={ms.lost != null ? String(ms.lost) : null}
+                    />
+                    <Stat
+                      label="Goles anotados"
+                      value={
+                        ms.goalsFor != null
+                          ? perMatch(ms.goalsFor, ms.played)
+                            ? `${ms.goalsFor} (${perMatch(ms.goalsFor, ms.played)} por partido)`
+                            : String(ms.goalsFor)
+                          : null
+                      }
+                    />
+                    <Stat
+                      label="Goles recibidos"
+                      value={
+                        ms.goalsAgainst != null
+                          ? perMatch(ms.goalsAgainst, ms.played)
+                            ? `${ms.goalsAgainst} (${perMatch(ms.goalsAgainst, ms.played)} por partido)`
+                            : String(ms.goalsAgainst)
+                          : null
+                      }
+                    />
+                  </dl>
+                </div>
+              )}
+
               {data.worldCup.summary && (
                 <div className="mt-4 border border-[var(--line)] bg-white p-5">
                   <p className="leading-relaxed text-sm text-[var(--foreground)]">
@@ -199,7 +260,7 @@ export default async function CountryPage({
           )}
 
           <div className="mt-12 border-t border-[var(--line)] pt-6 text-xs text-[var(--foreground-muted)]">
-            Fuente: Wikipedia (en).
+            Fuente: Wikipedia (es).
           </div>
         </section>
       </main>
