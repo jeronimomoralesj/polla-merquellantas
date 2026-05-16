@@ -9,11 +9,189 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { formatDate } from "@/data/worldcup2026";
 import { staticFallback, type ApiMatch } from "@/lib/matches";
 import { clearSession, readSession, type Session } from "@/lib/session";
 import { displayTeam, normalizeTeam } from "@/lib/team-display";
 import type { KnockoutPick, PredictionDoc } from "@/lib/types";
+
+type CountryPreview = {
+  es: string;
+  flag: string;
+  worldCup: {
+    appearances: string | null;
+    bestResult: string | null;
+    matchStats: {
+      played: number | null;
+      won: number | null;
+      drawn: number | null;
+      lost: number | null;
+      goalsFor: number | null;
+      goalsAgainst: number | null;
+    };
+  };
+};
+
+const countryCache = new Map<string, Promise<CountryPreview | null>>();
+
+function fetchCountryPreview(code: string): Promise<CountryPreview | null> {
+  const key = code.toLowerCase();
+  const hit = countryCache.get(key);
+  if (hit) return hit;
+  const p = fetch(`/api/country/${encodeURIComponent(code)}`, {
+    cache: "force-cache",
+  })
+    .then((r) => (r.ok ? r.json() : null))
+    .catch(() => null);
+  countryCache.set(key, p);
+  return p;
+}
+
+function HoverCard({
+  rect,
+  code,
+  fallbackName,
+  fallbackFlag,
+}: {
+  rect: DOMRect;
+  code: string;
+  fallbackName: string;
+  fallbackFlag?: string;
+}) {
+  const [data, setData] = useState<CountryPreview | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetchCountryPreview(code).then((d) => {
+      if (cancelled) return;
+      setData(d);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [code]);
+
+  if (typeof document === "undefined") return null;
+
+  const cardWidth = 280;
+  const margin = 8;
+  // Prefer above; flip to below if too close to top
+  const placement: "above" | "below" =
+    rect.top < 220 ? "below" : "above";
+  const top = placement === "above" ? rect.top - margin : rect.bottom + margin;
+  let left = rect.left + rect.width / 2 - cardWidth / 2;
+  const viewportW =
+    typeof window !== "undefined" ? window.innerWidth : cardWidth;
+  if (left < 8) left = 8;
+  if (left + cardWidth > viewportW - 8) left = viewportW - 8 - cardWidth;
+
+  const ms = data?.worldCup.matchStats;
+  const apps = data?.worldCup.appearances;
+  const best = data?.worldCup.bestResult;
+
+  return createPortal(
+    <div
+      className="pointer-events-none fixed z-[100]"
+      style={{
+        top,
+        left,
+        width: cardWidth,
+        transform: placement === "above" ? "translateY(-100%)" : "none",
+      }}
+    >
+      <div className="border border-[var(--foreground)] bg-white p-3 shadow-xl">
+        <div className="flex items-center gap-2 border-b border-[var(--line)] pb-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={data?.flag ?? fallbackFlag ?? ""}
+            alt=""
+            aria-hidden
+            className="h-6 w-9 border border-[var(--line)] object-cover"
+          />
+          <span className="text-sm font-black uppercase tracking-tight">
+            {data?.es ?? fallbackName}
+          </span>
+        </div>
+
+        {loading && !data ? (
+          <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--foreground-muted)]">
+            Cargando…
+          </p>
+        ) : !data ? (
+          <p className="mt-2 text-xs text-[var(--foreground-soft)]">
+            Sin datos disponibles.
+          </p>
+        ) : !apps && !ms?.played && !best ? (
+          <p className="mt-2 text-xs text-[var(--foreground-soft)]">
+            Sin datos de Copa del Mundo.
+          </p>
+        ) : (
+          <dl className="mt-2 space-y-1 text-xs">
+            {apps && (
+              <div className="flex justify-between gap-2">
+                <dt className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--foreground-muted)]">
+                  Mundiales
+                </dt>
+                <dd className="font-bold tabular-nums">{apps}</dd>
+              </div>
+            )}
+            {ms?.played != null && (
+              <div className="flex justify-between gap-2">
+                <dt className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--foreground-muted)]">
+                  Partidos
+                </dt>
+                <dd className="font-bold tabular-nums">{ms.played}</dd>
+              </div>
+            )}
+            {(ms?.won != null || ms?.drawn != null || ms?.lost != null) && (
+              <div className="flex justify-between gap-2">
+                <dt className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--foreground-muted)]">
+                  G · E · P
+                </dt>
+                <dd className="font-bold tabular-nums">
+                  <span className="text-emerald-700">{ms.won ?? "—"}</span>
+                  {" · "}
+                  <span>{ms.drawn ?? "—"}</span>
+                  {" · "}
+                  <span className="text-red-700">{ms.lost ?? "—"}</span>
+                </dd>
+              </div>
+            )}
+            {(ms?.goalsFor != null || ms?.goalsAgainst != null) && (
+              <div className="flex justify-between gap-2">
+                <dt className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--foreground-muted)]">
+                  Goles
+                </dt>
+                <dd className="font-bold tabular-nums">
+                  {ms.goalsFor ?? "—"}{" "}
+                  <span className="text-[var(--foreground-muted)]">·</span>{" "}
+                  {ms.goalsAgainst ?? "—"}
+                </dd>
+              </div>
+            )}
+            {best && (
+              <div className="pt-1">
+                <dt className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--foreground-muted)]">
+                  Mejor resultado
+                </dt>
+                <dd className="font-semibold leading-snug">{best}</dd>
+              </div>
+            )}
+          </dl>
+        )}
+
+        <p className="mt-2 border-t border-[var(--line)] pt-2 font-mono text-[9px] uppercase tracking-[0.28em] text-[var(--foreground-muted)]">
+          Clic para ver más
+        </p>
+      </div>
+    </div>,
+    document.body,
+  );
+}
 
 const MERQUE_LOGO =
   "https://www.merquellantas.com/assets/images/logo/Logo-Merquellantas.png";
@@ -87,6 +265,37 @@ function TeamLink({
   textClass?: string;
   align?: "left" | "right";
 }) {
+  const triggerRef = useRef<HTMLAnchorElement | HTMLDivElement | null>(null);
+  const enterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [rect, setRect] = useState<DOMRect | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (enterTimer.current) clearTimeout(enterTimer.current);
+      if (leaveTimer.current) clearTimeout(leaveTimer.current);
+    };
+  }, []);
+
+  const handleEnter = useCallback(() => {
+    if (!code) return;
+    if (leaveTimer.current) clearTimeout(leaveTimer.current);
+    if (enterTimer.current) clearTimeout(enterTimer.current);
+    enterTimer.current = setTimeout(() => {
+      const el = triggerRef.current;
+      if (!el) return;
+      setRect(el.getBoundingClientRect());
+      // Warm the cache before the popup mounts
+      fetchCountryPreview(code);
+    }, 180);
+  }, [code]);
+
+  const handleLeave = useCallback(() => {
+    if (enterTimer.current) clearTimeout(enterTimer.current);
+    if (leaveTimer.current) clearTimeout(leaveTimer.current);
+    leaveTimer.current = setTimeout(() => setRect(null), 80);
+  }, []);
+
   const inner = (
     <>
       {align === "right" && (
@@ -107,17 +316,32 @@ function TeamLink({
     </>
   );
   const wrap = `flex min-w-0 items-center gap-2 ${align === "right" ? "justify-end text-right" : ""}`;
+
   if (!code) {
     return <div className={wrap}>{inner}</div>;
   }
   return (
-    <Link
-      href={`/dashboard/country/${encodeURIComponent(code)}`}
-      className={`${wrap} transition hover:text-[var(--brand)]`}
-      title={`Ver datos de ${name}`}
-    >
-      {inner}
-    </Link>
+    <>
+      <Link
+        ref={triggerRef as React.RefObject<HTMLAnchorElement>}
+        href={`/dashboard/country/${encodeURIComponent(code)}`}
+        className={`${wrap} transition hover:text-[var(--brand)]`}
+        onMouseEnter={handleEnter}
+        onMouseLeave={handleLeave}
+        onFocus={handleEnter}
+        onBlur={handleLeave}
+      >
+        {inner}
+      </Link>
+      {rect && (
+        <HoverCard
+          rect={rect}
+          code={code}
+          fallbackName={name}
+          fallbackFlag={crest}
+        />
+      )}
+    </>
   );
 }
 
