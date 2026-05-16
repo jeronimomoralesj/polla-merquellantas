@@ -27,11 +27,13 @@ function ScoreInput({
   onChange,
   onCommit,
   ariaLabel,
+  size = "lg",
 }: {
   value: number | null | undefined;
   onChange: (v: number | null) => void;
   onCommit?: () => void;
   ariaLabel: string;
+  size?: "lg" | "sm";
 }) {
   const [text, setText] = useState<string>(
     value == null || value === undefined ? "" : String(value),
@@ -39,6 +41,10 @@ function ScoreInput({
   useEffect(() => {
     setText(value == null || value === undefined ? "" : String(value));
   }, [value]);
+  const sizeCls =
+    size === "sm"
+      ? "h-9 w-9 text-base"
+      : "h-12 w-14 text-xl";
   return (
     <input
       type="number"
@@ -61,8 +67,57 @@ function ScoreInput({
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === "Tab") onCommit?.();
       }}
-      className="h-12 w-14 border border-[var(--line)] bg-white text-center font-mono text-xl font-black tabular-nums outline-none transition focus:border-[var(--brand)] focus:ring-2 focus:ring-[var(--brand)]/20"
+      className={`${sizeCls} border border-[var(--line)] bg-white text-center font-mono font-black tabular-nums outline-none transition focus:border-[var(--brand)] focus:ring-2 focus:ring-[var(--brand)]/20`}
     />
+  );
+}
+
+function TeamLink({
+  code,
+  name,
+  crest,
+  flagClass = "h-5 w-7",
+  textClass = "text-sm font-bold uppercase tracking-tight",
+  align = "left",
+}: {
+  code: string;
+  name: string;
+  crest?: string;
+  flagClass?: string;
+  textClass?: string;
+  align?: "left" | "right";
+}) {
+  const inner = (
+    <>
+      {align === "right" && (
+        <span className={`${textClass} truncate`}>{name || "—"}</span>
+      )}
+      {crest ? (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          src={crest}
+          alt=""
+          aria-hidden
+          className={`${flagClass} shrink-0 border border-[var(--line)] object-cover`}
+        />
+      ) : null}
+      {align === "left" && (
+        <span className={`${textClass} truncate`}>{name || "—"}</span>
+      )}
+    </>
+  );
+  const wrap = `flex min-w-0 items-center gap-2 ${align === "right" ? "justify-end text-right" : ""}`;
+  if (!code) {
+    return <div className={wrap}>{inner}</div>;
+  }
+  return (
+    <Link
+      href={`/dashboard/country/${encodeURIComponent(code)}`}
+      className={`${wrap} transition hover:text-[var(--brand)]`}
+      title={`Ver datos de ${name}`}
+    >
+      {inner}
+    </Link>
   );
 }
 
@@ -85,16 +140,14 @@ function GroupMatchRow({
         <div>{formatDate(match.date)}</div>
         <div className="text-[var(--foreground)]">{match.time}</div>
       </div>
-      <div className="flex items-center gap-3 md:justify-end">
-        <span className="text-right text-base font-bold uppercase tracking-tight">
-          {home.name}
-        </span>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={home.crest}
-          alt=""
-          aria-hidden
-          className="h-9 w-12 border border-[var(--line)] object-cover"
+      <div className="md:justify-end">
+        <TeamLink
+          code={home.code}
+          name={home.name}
+          crest={home.crest}
+          flagClass="h-9 w-12"
+          textClass="text-base font-bold uppercase tracking-tight"
+          align="right"
         />
       </div>
       <div className="flex items-center gap-2">
@@ -114,17 +167,15 @@ function GroupMatchRow({
           ariaLabel={`${away.name} goles`}
         />
       </div>
-      <div className="flex items-center gap-3">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={away.crest}
-          alt=""
-          aria-hidden
-          className="h-9 w-12 border border-[var(--line)] object-cover"
+      <div>
+        <TeamLink
+          code={away.code}
+          name={away.name}
+          crest={away.crest}
+          flagClass="h-9 w-12"
+          textClass="text-base font-bold uppercase tracking-tight"
+          align="left"
         />
-        <span className="text-base font-bold uppercase tracking-tight">
-          {away.name}
-        </span>
       </div>
       <div className="col-span-3 border-t border-dashed border-[var(--line)] pt-2 text-xs text-[var(--foreground-soft)] md:col-span-1 md:border-0 md:pt-0 md:text-right">
         <div className="md:hidden">
@@ -139,81 +190,97 @@ function GroupMatchRow({
   );
 }
 
-function KnockoutMatchRow({
+function BracketCard({
   pick,
   onChange,
   onCommit,
   onPickPenalty,
+  size = "sm",
 }: {
   pick: KnockoutPick;
   onChange: (home: number | null, away: number | null) => void;
   onCommit: () => void;
   onPickPenalty: (winner: "home" | "away") => void;
+  size?: "sm" | "lg";
 }) {
   const isTie =
     pick.home != null && pick.away != null && pick.home === pick.away;
   const home = displayTeam(pick.homeTeamCode, pick.homeTeamName);
   const away = displayTeam(pick.awayTeamCode, pick.awayTeamName);
-  return (
-    <li className="grid gap-3 border border-[var(--line)] bg-white p-4">
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 md:grid-cols-[1fr_auto_1fr]">
-        <div className="flex items-center justify-end gap-3 text-right text-base font-bold uppercase tracking-tight">
-          <span>{home.name || "—"}</span>
-          {home.crest && (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={home.crest}
-              alt=""
-              aria-hidden
-              className="h-7 w-10 shrink-0 border border-[var(--line)] object-cover"
-            />
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <ScoreInput
-            value={pick.home}
-            onChange={(v) => onChange(v, pick.away)}
-            onCommit={onCommit}
-            ariaLabel={`${home.name} goles`}
-          />
-          <span className="font-mono text-xs font-bold text-[var(--foreground-muted)]">
-            vs
-          </span>
-          <ScoreInput
-            value={pick.away}
-            onChange={(v) => onChange(pick.home, v)}
-            onCommit={onCommit}
-            ariaLabel={`${away.name} goles`}
-          />
-        </div>
-        <div className="flex items-center gap-3 text-base font-bold uppercase tracking-tight">
-          {away.crest && (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={away.crest}
-              alt=""
-              aria-hidden
-              className="h-7 w-10 shrink-0 border border-[var(--line)] object-cover"
-            />
-          )}
-          <span>{away.name || "—"}</span>
-        </div>
+  const winner =
+    pick.home != null && pick.away != null
+      ? pick.home > pick.away
+        ? "home"
+        : pick.away > pick.home
+          ? "away"
+          : pick.penaltyWinner
+      : null;
+  const inputSize = size === "lg" ? "lg" : "sm";
+  const flagCls = size === "lg" ? "h-7 w-10" : "h-5 w-7";
+  const textCls =
+    size === "lg"
+      ? "text-sm font-bold uppercase tracking-tight"
+      : "text-xs font-bold uppercase tracking-tight";
+
+  const row = (
+    side: "home" | "away",
+    team: { code: string; name: string; crest: string },
+    score: number | null,
+    onScore: (v: number | null) => void,
+  ) => {
+    const isWinner = winner === side;
+    const isLoser = winner && winner !== side;
+    return (
+      <div
+        className={
+          "flex items-center justify-between gap-2 px-2 py-1.5 " +
+          (isWinner
+            ? "bg-[var(--brand-soft)] "
+            : isLoser
+              ? "opacity-60 "
+              : "")
+        }
+      >
+        <TeamLink
+          code={team.code}
+          name={team.name}
+          crest={team.crest}
+          flagClass={flagCls}
+          textClass={textCls}
+          align="left"
+        />
+        <ScoreInput
+          value={score}
+          onChange={onScore}
+          onCommit={onCommit}
+          ariaLabel={`${team.name} goles`}
+          size={inputSize}
+        />
       </div>
+    );
+  };
+
+  return (
+    <div className="w-full border border-[var(--line)] bg-white shadow-sm">
+      {row("home", home, pick.home, (v) => onChange(v, pick.away))}
+      <div className="h-px bg-[var(--line)]" />
+      {row("away", away, pick.away, (v) => onChange(pick.home, v))}
       {isTie && (
-        <div className="flex flex-wrap items-center gap-3 border-t border-dashed border-[var(--line)] pt-3 text-sm">
-          <span className="font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--foreground-muted)]">
+        <div className="border-t border-dashed border-[var(--line)] bg-[var(--surface)] px-2 py-1.5">
+          <p className="font-mono text-[9px] uppercase tracking-[0.25em] text-[var(--foreground-muted)]">
             Gana en penales
-          </span>
-          <div className="flex gap-2">
+          </p>
+          <div className="mt-1 flex gap-1">
             <button
               type="button"
               onClick={() => onPickPenalty("home")}
               className={
-                "border px-3 py-2 text-xs font-bold uppercase tracking-[0.18em] transition " +
+                "flex-1 truncate border px-1.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] transition " +
                 (pick.penaltyWinner === "home"
                   ? "border-[var(--brand)] bg-[var(--brand)] text-white"
                   : "border-[var(--line)] hover:border-[var(--brand)]")
               }
+              title={home.name}
             >
               {home.name}
             </button>
@@ -221,18 +288,83 @@ function KnockoutMatchRow({
               type="button"
               onClick={() => onPickPenalty("away")}
               className={
-                "border px-3 py-2 text-xs font-bold uppercase tracking-[0.18em] transition " +
+                "flex-1 truncate border px-1.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] transition " +
                 (pick.penaltyWinner === "away"
                   ? "border-[var(--brand)] bg-[var(--brand)] text-white"
                   : "border-[var(--line)] hover:border-[var(--brand)]")
               }
+              title={away.name}
             >
               {away.name}
             </button>
           </div>
         </div>
       )}
-    </li>
+    </div>
+  );
+}
+
+function BracketColumn({
+  title,
+  subtitle,
+  children,
+  width = 220,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+  width?: number;
+}) {
+  return (
+    <div
+      className="flex flex-col"
+      style={{ minWidth: width, width }}
+    >
+      <div className="mb-2 flex items-baseline justify-between border-b border-[var(--foreground)] pb-2">
+        <h3 className="font-mono text-[11px] font-bold uppercase tracking-[0.28em]">
+          {title}
+        </h3>
+        {subtitle && (
+          <span className="font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--foreground-muted)]">
+            {subtitle}
+          </span>
+        )}
+      </div>
+      <div className="flex flex-1 flex-col gap-1">{children}</div>
+    </div>
+  );
+}
+
+function BracketSlot({
+  children,
+  isFirstOfPair,
+  hasNextRound,
+}: {
+  children: React.ReactNode;
+  isFirstOfPair?: boolean;
+  hasNextRound?: boolean;
+}) {
+  return (
+    <div className="relative flex flex-1 items-center">
+      {children}
+      {hasNextRound && (
+        <>
+          <span
+            aria-hidden
+            className="pointer-events-none absolute right-[-12px] top-1/2 h-px w-3 bg-[var(--line)]"
+          />
+          <span
+            aria-hidden
+            className="pointer-events-none absolute right-[-12px] w-px bg-[var(--line)]"
+            style={
+              isFirstOfPair
+                ? { top: "50%", height: "50%" }
+                : { bottom: "50%", height: "50%" }
+            }
+          />
+        </>
+      )}
+    </div>
   );
 }
 
@@ -786,111 +918,124 @@ export default function PredictPage() {
               </div>
 
               {groupComplete && (
-                <div className="mt-8 grid gap-8">
-                  {(
-                    [
-                      { stage: "ROUND_OF_32" as const, picks: prediction.knockout.r32 },
-                      { stage: "ROUND_OF_16" as const, picks: prediction.knockout.r16 },
-                      { stage: "QUARTER_FINALS" as const, picks: prediction.knockout.qf },
-                      { stage: "SEMI_FINALS" as const, picks: prediction.knockout.sf },
-                    ] as const
-                  ).map(({ stage, picks }) => (
-                    <div key={stage}>
-                      <div className="mb-3 flex items-baseline justify-between border-b border-[var(--foreground)] pb-2">
-                        <h3 className="font-mono text-xs font-bold uppercase tracking-[0.3em]">
-                          {STAGE_TITLES[stage]}
-                        </h3>
-                        <span className="font-mono text-[10px] uppercase tracking-[0.3em] text-[var(--foreground-muted)]">
-                          {picks.filter((p) => p.home != null && p.away != null).length}
-                          /{picks.length}
-                        </span>
-                      </div>
-                      <ul className="grid gap-3 md:grid-cols-2">
-                        {picks.map((p) => (
-                          <KnockoutMatchRow
-                            key={p.matchId}
-                            pick={p}
-                            onChange={(h, a) =>
-                              queueKnockoutSave(p.matchId, h, a, p.penaltyWinner)
-                            }
-                            onCommit={() => flushMatch(p.matchId)}
-                            onPickPenalty={(w) =>
-                              queueKnockoutSave(p.matchId, p.home, p.away, w)
-                            }
-                          />
-                        ))}
-                      </ul>
+                <div className="mt-8 space-y-10">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-[var(--foreground-muted)] md:hidden">
+                    Desliza horizontalmente para ver toda la llave →
+                  </p>
+                  <div className="overflow-x-auto pb-6">
+                    <div
+                      className="flex gap-6"
+                      style={{ minHeight: 1500 }}
+                    >
+                      {(
+                        [
+                          {
+                            stage: "ROUND_OF_32" as const,
+                            picks: prediction.knockout.r32,
+                            width: 230,
+                          },
+                          {
+                            stage: "ROUND_OF_16" as const,
+                            picks: prediction.knockout.r16,
+                            width: 220,
+                          },
+                          {
+                            stage: "QUARTER_FINALS" as const,
+                            picks: prediction.knockout.qf,
+                            width: 220,
+                          },
+                          {
+                            stage: "SEMI_FINALS" as const,
+                            picks: prediction.knockout.sf,
+                            width: 220,
+                          },
+                          {
+                            stage: "FINAL" as const,
+                            picks: prediction.knockout.final
+                              ? [prediction.knockout.final]
+                              : [],
+                            width: 240,
+                          },
+                        ] as const
+                      ).map((col, colIdx, arr) => {
+                        const filled = col.picks.filter(
+                          (p) => p.home != null && p.away != null,
+                        ).length;
+                        const hasNextRound = colIdx < arr.length - 1;
+                        return (
+                          <BracketColumn
+                            key={col.stage}
+                            title={STAGE_TITLES[col.stage]}
+                            subtitle={`${filled}/${col.picks.length}`}
+                            width={col.width}
+                          >
+                            {col.picks.map((p, i) => (
+                              <BracketSlot
+                                key={p.matchId}
+                                isFirstOfPair={i % 2 === 0}
+                                hasNextRound={hasNextRound}
+                              >
+                                <BracketCard
+                                  pick={p}
+                                  size={col.stage === "FINAL" ? "lg" : "sm"}
+                                  onChange={(h, a) =>
+                                    queueKnockoutSave(
+                                      p.matchId,
+                                      h,
+                                      a,
+                                      p.penaltyWinner,
+                                    )
+                                  }
+                                  onCommit={() => flushMatch(p.matchId)}
+                                  onPickPenalty={(w) =>
+                                    queueKnockoutSave(
+                                      p.matchId,
+                                      p.home,
+                                      p.away,
+                                      w,
+                                    )
+                                  }
+                                />
+                              </BracketSlot>
+                            ))}
+                          </BracketColumn>
+                        );
+                      })}
                     </div>
-                  ))}
-
-                  <div className="grid gap-6 md:grid-cols-2">
-                    {prediction.knockout.third && (
-                      <div>
-                        <div className="mb-3 flex items-baseline justify-between border-b border-[var(--foreground)] pb-2">
-                          <h3 className="font-mono text-xs font-bold uppercase tracking-[0.3em]">
-                            {STAGE_TITLES.THIRD_PLACE}
-                          </h3>
-                        </div>
-                        <ul className="grid gap-3">
-                          <KnockoutMatchRow
-                            pick={prediction.knockout.third}
-                            onChange={(h, a) =>
-                              queueKnockoutSave(
-                                prediction.knockout.third!.matchId,
-                                h,
-                                a,
-                                prediction.knockout.third!.penaltyWinner,
-                              )
-                            }
-                            onCommit={() =>
-                              flushMatch(prediction.knockout.third!.matchId)
-                            }
-                            onPickPenalty={(w) =>
-                              queueKnockoutSave(
-                                prediction.knockout.third!.matchId,
-                                prediction.knockout.third!.home,
-                                prediction.knockout.third!.away,
-                                w,
-                              )
-                            }
-                          />
-                        </ul>
-                      </div>
-                    )}
-                    {prediction.knockout.final && (
-                      <div>
-                        <div className="mb-3 flex items-baseline justify-between border-b border-[var(--foreground)] pb-2">
-                          <h3 className="font-mono text-xs font-bold uppercase tracking-[0.3em]">
-                            {STAGE_TITLES.FINAL}
-                          </h3>
-                        </div>
-                        <ul className="grid gap-3">
-                          <KnockoutMatchRow
-                            pick={prediction.knockout.final}
-                            onChange={(h, a) =>
-                              queueKnockoutSave(
-                                prediction.knockout.final!.matchId,
-                                h,
-                                a,
-                                prediction.knockout.final!.penaltyWinner,
-                              )
-                            }
-                            onCommit={() =>
-                              flushMatch(prediction.knockout.final!.matchId)
-                            }
-                            onPickPenalty={(w) =>
-                              queueKnockoutSave(
-                                prediction.knockout.final!.matchId,
-                                prediction.knockout.final!.home,
-                                prediction.knockout.final!.away,
-                                w,
-                              )
-                            }
-                          />
-                        </ul>
-                      </div>
-                    )}
                   </div>
+
+                  {prediction.knockout.third && (
+                    <div className="max-w-sm">
+                      <div className="mb-2 flex items-baseline justify-between border-b border-[var(--foreground)] pb-2">
+                        <h3 className="font-mono text-[11px] font-bold uppercase tracking-[0.28em]">
+                          {STAGE_TITLES.THIRD_PLACE}
+                        </h3>
+                      </div>
+                      <BracketCard
+                        pick={prediction.knockout.third}
+                        size="lg"
+                        onChange={(h, a) =>
+                          queueKnockoutSave(
+                            prediction.knockout.third!.matchId,
+                            h,
+                            a,
+                            prediction.knockout.third!.penaltyWinner,
+                          )
+                        }
+                        onCommit={() =>
+                          flushMatch(prediction.knockout.third!.matchId)
+                        }
+                        onPickPenalty={(w) =>
+                          queueKnockoutSave(
+                            prediction.knockout.third!.matchId,
+                            prediction.knockout.third!.home,
+                            prediction.knockout.third!.away,
+                            w,
+                          )
+                        }
+                      />
+                    </div>
+                  )}
 
                   {prediction.champion &&
                     (() => {
@@ -899,7 +1044,10 @@ export default function PredictPage() {
                         prediction.champion.name,
                       );
                       return (
-                        <div className="flex items-center gap-6 border-l-4 border-[var(--brand)] bg-[var(--brand-soft)] p-8">
+                        <Link
+                          href={`/dashboard/country/${encodeURIComponent(champ.code)}`}
+                          className="group flex items-center gap-6 border-l-4 border-[var(--brand)] bg-[var(--brand-soft)] p-8 transition hover:bg-[var(--brand)] hover:text-white"
+                        >
                           {champ.crest && (
                             /* eslint-disable-next-line @next/next/no-img-element */
                             <img
@@ -910,14 +1058,14 @@ export default function PredictPage() {
                             />
                           )}
                           <div>
-                            <p className="font-mono text-[11px] uppercase tracking-[0.3em] text-[var(--brand-dark)]">
+                            <p className="font-mono text-[11px] uppercase tracking-[0.3em] text-[var(--brand-dark)] group-hover:text-white">
                               Tu campeón pronosticado
                             </p>
-                            <p className="mt-3 text-4xl font-black uppercase tracking-tight text-[var(--brand-dark)]">
+                            <p className="mt-3 text-4xl font-black uppercase tracking-tight text-[var(--brand-dark)] group-hover:text-white">
                               {champ.name}
                             </p>
                           </div>
-                        </div>
+                        </Link>
                       );
                     })()}
 
